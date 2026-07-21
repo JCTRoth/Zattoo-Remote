@@ -1,0 +1,26 @@
+[package]
+name = "zattoo-remote"
+version = "1.0.0"
+description = "Zattoo MX3 Remote Controller"
+authors = ["Zattoo Remote Team"]
+edition = "2021"
+
+[lib]
+name = "zattoo_remote_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+tauri-plugin-global-shortcut = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+rdev = "0.5"
+once_cell = "1"
+parking_lot = "0.12"
+log = "0.4"
+env_logger = "0.11"

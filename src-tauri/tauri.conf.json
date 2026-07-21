@@ -1,0 +1,33 @@
+{
+  "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-utils/schema.json",
+  "productName": "Zattoo Remote",
+  "version": "1.0.0",
+  "identifier": "com.zattoo.remote",
+  "build": {
+    "frontendDist": "../dist",
+    "beforeBuildCommand": "echo 'Frontend not needed (direct Zattoo URL)'"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "Zattoo Remote",
+        "width": 1280,
+        "height": 720,
+        "fullscreen": false,
+        "decorations": true,
+        "resizable": true,
+        "center": true,
+        "url": "https://zattoo.com"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self' https://zattoo.com https://*.zattoo.com https://*.onetrust.com https://*.sentry.io https://zahs.tv https://*.zahs.tv; script-src 'self' 'unsafe-inline' https://zattoo.com https://*.zattoo.com https://*.onetrust.com https://*.sentry.io https://zahs.tv https://*.zahs.tv; style-src 'self' 'unsafe-inline' https://zattoo.com https://*.zattoo.com; connect-src 'self' https://zattoo.com https://*.zattoo.com https://*.onetrust.com https://*.sentry.io https://zahs.tv https://*.zattoo.tv; img-src 'self' https://zattoo.com https://*.zattoo.com https://zahs.tv https://*.zahs.tv data: blob:; media-src https://zattoo.com https://*.zattoo.com https://*.zattoo.tv blob:; frame-src 'self' https://zattoo.com https://*.zattoo.com; font-src 'self' https://zattoo.com https://*.zattoo.com data:"
+    }
+  },
+  "plugins": {
+    "shell": {
+      "open": true
+    }
+  }
+}
