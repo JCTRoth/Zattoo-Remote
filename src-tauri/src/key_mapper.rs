@@ -24,8 +24,10 @@ pub struct KeyMapping {
 pub struct FavoriteChannel {
     /// Display name
     pub name: String,
-    /// Channel name / search term for Zattoo
+    /// Channel name / search term for Zattoo (fallback)
     pub channel: String,
+    /// Channel slug for URL-based navigation (e.g. "zdf", "daserste")
+    pub slug: Option<String>,
     /// Color key this favorite is bound to (red, green, yellow, blue)
     pub color: String,
 }
@@ -35,14 +37,20 @@ pub struct FavoriteChannel {
 pub struct ChannelMapEntry {
     /// Display name shown in OSD
     pub name: String,
-    /// Search term used in Zattoo's search field
+    /// Search term used in Zattoo's search field (fallback)
     pub search: String,
+    /// Channel slug for URL-based navigation (e.g. "daserste", "zdf")
+    pub slug: Option<String>,
 }
 
 /// Full key mapping configuration, loadable from JSON.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KeyMappingConfig {
     pub version: String,
+    /// Base URL for Zattoo or white-label portal (e.g. "https://zattoo.com")
+    pub base_url: Option<String>,
+    /// Region prefix ("de", "at", "ch", "int")
+    pub region: Option<String>,
     pub mappings: Vec<KeyMapping>,
     pub favorites: Vec<FavoriteChannel>,
     /// Maps digit sequences → channel info (e.g. "1" → { name: "Das Erste", search: "Das Erste" })
@@ -65,6 +73,8 @@ impl KeyMapper {
         Self {
             config: KeyMappingConfig {
                 version: "1.0".into(),
+                base_url: None,
+                region: None,
                 mappings: Vec::new(),
                 favorites: Vec::new(),
                 channel_map: HashMap::new(),

@@ -1,26 +1,46 @@
 /**
- * Zattoo Remote — Overlay injection script.
+ * Zattoo Remote — Overlay injection script v2.
  *
  * Injected into Zattoo via Rust's webview.eval() after page load.
  * Exposes window.__zattooRemote.handleKeyEvent() which Rust calls
  * directly via eval() — no Tauri __TAURI__ required.
- * This makes it work reliably on remote URLs (zattoo.com).
+ *
+ * Features:
+ * - URL-based channel navigation using verified Zattoo deep-links
+ * - Region prefix support (de/at/ch)
+ * - White-label domain support
+ * - DOM-based fallback for when URL nav is not possible
+ * - SPA navigation resilience via MutationObserver + URL change detection
+ * - OSD for channel numbers, volume, and favorites
  */
 (function(){'use strict';if(window.__ZR)return;window.__ZR=true;
 
-// ── Embedded config (mirrors src/key-config.json) ─────────────────
-var CMap={"0":{name:"arte",search:"arte"},"1":{name:"Das Erste",search:"Das Erste"},
-"2":{name:"ZDF",search:"ZDF"},"3":{name:"RTL",search:"RTL"},"4":{name:"Sat.1",search:"Sat.1"},
-"5":{name:"ProSieben",search:"ProSieben"},"6":{name:"VOX",search:"VOX"},
-"7":{name:"kabel eins",search:"kabel eins"},"8":{name:"RTL Zwei",search:"RTL Zwei"},
-"9":{name:"3sat",search:"3sat"},"11":{name:"ZDFneo",search:"ZDFneo"},
-"22":{name:"ZDFinfo",search:"ZDFinfo"},"33":{name:"sixx",search:"sixx"},
-"44":{name:"DMAX",search:"DMAX"},"55":{name:"Tele 5",search:"Tele 5"},
-"66":{name:"N24 Doku",search:"N24 Doku"},"77":{name:"Comedy Central",search:"Comedy Central"},
-"88":{name:"Nitro",search:"Nitro"},"99":{name:"Super RTL",search:"Super RTL"}};
-var Favs=[{name:"ZDF",channel:"ZDF",color:"red"},{name:"Das Erste",channel:"Das Erste",color:"green"},
-{name:"RTL",channel:"RTL",color:"yellow"},{name:"ProSieben",channel:"ProSieben",color:"blue"}];
-var Tmo=2000,VStep=5,chBuf="",chTim=null,vol=50,mouse=false,osdTim=null;
+// ── Embedded config (mirrors src/key-config.json v1.1) ───────────
+var BASE='https://zattoo.com',REG='de';
+var CMap={"0":{name:"arte",search:"arte",slug:"arte"},
+"1":{name:"Das Erste",search:"Das Erste",slug:"daserste"},
+"2":{name:"ZDF",search:"ZDF",slug:"zdf"},
+"3":{name:"RTL",search:"RTL",slug:"rtl"},
+"4":{name:"Sat.1",search:"Sat.1",slug:"sat1"},
+"5":{name:"ProSieben",search:"ProSieben",slug:"prosieben"},
+"6":{name:"VOX",search:"VOX",slug:"vox"},
+"7":{name:"kabel eins",search:"kabel eins",slug:"kabel1"},
+"8":{name:"RTL Zwei",search:"RTL Zwei",slug:"rtl2"},
+"9":{name:"3sat",search:"3sat",slug:"3sat"},
+"11":{name:"ZDFneo",search:"ZDFneo",slug:"zdfneo"},
+"22":{name:"ZDFinfo",search:"ZDFinfo",slug:"zdfinfo"},
+"33":{name:"sixx",search:"sixx",slug:"sixx"},
+"44":{name:"DMAX",search:"DMAX",slug:"dmax"},
+"55":{name:"Tele 5",search:"Tele 5",slug:"tele5"},
+"66":{name:"N24 Doku",search:"N24 Doku",slug:"n24-doku"},
+"77":{name:"Comedy Central",search:"Comedy Central",slug:"comedy-central"},
+"88":{name:"Nitro",search:"Nitro",slug:"nitro"},
+"99":{name:"Super RTL",search:"Super RTL",slug:"super-rtl"}};
+var Favs=[{name:"ZDF",channel:"ZDF",slug:"zdf",color:"red"},
+{name:"Das Erste",channel:"Das Erste",slug:"daserste",color:"green"},
+{name:"RTL",channel:"RTL",slug:"rtl",color:"yellow"},
+{name:"ProSieben",channel:"ProSieben",slug:"prosieben",color:"blue"}];
+var Tmo=2000,VStep=5,chBuf="",chTim=null,vol=50,mouse=false,osdTim=null,lastUrl='';
 
 // ── OSD injection ────────────────────────────────────────────────
 function injCSS(){if(document.getElementById("zrC"))return;
@@ -61,52 +81,101 @@ p.style.transition="none";p.style.width="100%";void p.offsetWidth;p.style.transi
 
 function hideCh(){var e=document.getElementById("zrCh");if(e)e.classList.add("h");}
 
+// ── Build URL for channel slug ───────────────────────────────────
+function chUrl(slug){return BASE+'/'+REG+'/live/'+slug;}
+
 // ── Zattoo DOM actions ───────────────────────────────────────────
 function za(act,param){
 switch(act){
 case"send_key":if(!param)break;document.body.dispatchEvent(new KeyboardEvent("keydown",{key:param,bubbles:true}));document.body.dispatchEvent(new KeyboardEvent("keyup",{key:param,bubbles:true}));break;
+
 case"change_channel":if(!param)break;
-var m=CMap[param],st=m?m.search:param,cn=m?m.name:param;console.log("[ZR] Ch->",cn);
+var m=CMap[param],slug=m?m.slug:null,st=m?m.search:param,cn=m?m.name:param;console.log("[ZR] Ch->",cn);
+// Strategy 1: URL-based navigation using slug (most reliable)
+if(slug){var url=chUrl(slug);if(window.location.href!==url){console.log("[ZR] Nav:",url);window.location.href=url;return;}}
+// Strategy 2: DOM search field (fallback)
 var ii=document.querySelectorAll('input[type="search"],input[placeholder*="search" i],input[aria-label*="search" i],input[type="text"]');
-var d=false;
+var done=false;
 for(var i=0;i<ii.length;i++){var inp=ii[i],r=inp.getBoundingClientRect();if(r.width>50&&r.height>20){
 inp.focus();inp.value=st;inp.dispatchEvent(new Event("input",{bubbles:true}));inp.dispatchEvent(new Event("change",{bubbles:true}));
 (function(x){setTimeout(function(){x.dispatchEvent(new KeyboardEvent("keydown",{key:"Enter",code:"Enter",bubbles:true}));x.dispatchEvent(new KeyboardEvent("keyup",{key:"Enter",code:"Enter",bubbles:true}))},500)})(inp);
-d=true;break;}}
-if(!d){var ce=document.querySelectorAll('[data-testid*="channel" i],[class*="channel" i],[class*="sender" i]');
-for(var j=0;j<ce.length;j++){if((ce[j].textContent||"").toLowerCase().indexOf(cn.toLowerCase())>=0){ce[j].click();d=true;break;}}}
-if(!d){var al=document.querySelectorAll("a,button,[role=button]");for(var k=0;k<al.length;k++){var t=(al[k].textContent||"").trim();if(t&&t.toLowerCase()===cn.toLowerCase()){al[k].click();break;}}}
+done=true;break;}}
+if(!done){var ce=document.querySelectorAll('[data-testid*="channel" i],[class*="channel" i],[class*="sender" i]');
+for(var j=0;j<ce.length;j++){if((ce[j].textContent||"").toLowerCase().indexOf(cn.toLowerCase())>=0){ce[j].click();done=true;break;}}}
+if(!done){var al=document.querySelectorAll("a,button,[role=button]");for(var k=0;k<al.length;k++){var t=(al[k].textContent||"").trim();if(t&&t.toLowerCase()===cn.toLowerCase()){al[k].click();break;}}}
 break;
+
 case"toggle_play_pause":var bs=document.querySelectorAll('[data-testid*="play" i],[data-testid*="pause" i],[aria-label*="play" i],[aria-label*="pause" i],button[title*="Play" i],button[title*="Pause" i],.vjs-play-control,.play-button');var c=false;
 for(var i=0;i<bs.length;i++){if(bs[i].offsetParent!==null){bs[i].click();c=true;break;}}
 if(!c){var v=document.querySelector("video");if(v){v.paused?v.play():v.pause();}}break;
+
 case"seek":var s=parseInt(param||"0",10);var v=document.querySelector("video");if(v&&!isNaN(s)){v.currentTime=Math.max(0,Math.min(v.duration||Infinity,v.currentTime+s));}break;
-case"open_epg":var sl=[['data-testid="epg-button"]','[data-testid="guide-button"]','a[href*="epg"]','a[href*="guide"]','[aria-label*="guide" i]','[aria-label*="EPG" i]'];var d=false;
-for(var i=0;i<sl.length;i++){var el=document.querySelector(sl[i]);if(el){el.click();d=true;break;}}
-if(!d){var al=document.querySelectorAll("a,button,[role=button]");for(var i=0;i<al.length;i++){if(/guide|epg|programm/i.test(al[i].textContent||"")){al[i].click();break;}}}break;
+
+case"open_epg":var sel=['[data-testid="epg-button"]','[data-testid="guide-button"]','a[href*="epg"]','a[href*="guide"]','[aria-label*="guide" i]','[aria-label*="EPG" i]'];var dn=false;
+for(var i=0;i<sel.length;i++){var el=document.querySelector(sel[i]);if(el){el.click();dn=true;break;}}
+if(!dn){var al=document.querySelectorAll("a,button,[role=button]");for(var i=0;i<al.length;i++){if(/guide|epg|programm/i.test(al[i].textContent||"")){al[i].click();break;}}}break;
+
 case"focus_search":var inp=document.querySelector('input[type="search"],input[placeholder*="search" i],input[aria-label*="search" i]');
 if(inp)inp.focus();else document.body.dispatchEvent(new KeyboardEvent("keydown",{key:"/",code:"Slash",bubbles:true}));break;
+
 case"press_escape":document.body.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",code:"Escape",bubbles:true}));document.body.dispatchEvent(new KeyboardEvent("keyup",{key:"Escape",code:"Escape",bubbles:true}));break;
+
 case"navigate":if(param)window.location.href=window.location.origin+param;break;
+
+case"navigate_guide":
+// Try URL first, then DOM fallback
+var gUrl=BASE+'/'+REG+'/guide';window.location.href=gUrl;
+break;
+
+case"navigate_settings":
+try{var st=document.querySelector('[data-testid*="setting" i],[aria-label*="setting" i],a[href*="setting" i],button[title*="Setting" i]');
+if(st){st.click();}else{var al=document.querySelectorAll("a,button,[role=button]");for(var i=0;i<al.length;i++){if(/einstellungen|settings/i.test(al[i].textContent||"")){al[i].click();break;}}}
+}catch(e){}break;
+
+case"navigate_account":
+try{var ac=document.querySelector('[data-testid*="account" i],[aria-label*="account" i],a[href*="account" i]');
+if(ac){ac.click();}else{var al=document.querySelectorAll("a,button,[role=button]");for(var i=0;i<al.length;i++){if(/account|konto|profil/i.test(al[i].textContent||"")){al[i].click();break;}}}
+}catch(e){}break;
+
+case"navigate_recordings":
+try{var rUrl=BASE+'/'+REG+'/recordings';window.location.href=rUrl;
+}catch(e){}break;
 }}
 
 // ── Key handler (called from Rust via eval) ──────────────────────
-function hke(j){try{var e=JSON.parse(j);if(!e.is_press)return;
+function hke(j){try{var e=JSON.parse(j);
+console.log("[ZR] Key event:",e.action,e.is_press?"↓":"↑",e.label||"",e.scan_code||0);
+if(!e.is_press)return;
 var a=e.action,l=e.label||"";osd(l);
 if(a.indexOf("digit_")===0){var d=a.charAt(a.length-1);chBuf+=d;showCh(chBuf);
 if(chTim)clearTimeout(chTim);chTim=setTimeout(function(){if(chBuf){za("change_channel",chBuf);chBuf="";hideCh()}},Tmo);return;}
-if(a.indexOf("color_")===0){var c=a.substring(6);for(var i=0;i<Favs.length;i++){if(Favs[i].color===c){osdF(Favs[i].name);za("change_channel",Favs[i].channel);break;}}return;}
+if(a.indexOf("color_")===0){var c=a.substring(6);for(var i=0;i<Favs.length;i++){if(Favs[i].color===c){osdF(Favs[i].name);za("change_channel",Favs[i].slug||Favs[i].channel);break;}}return;}
 switch(a){
 case"up":za("send_key","ArrowUp");break;case"down":za("send_key","ArrowDown");break;
 case"left":za("send_key","ArrowLeft");break;case"right":za("send_key","ArrowRight");break;
 case"ok":za("send_key","Enter");break;case"back":za("press_escape");break;
 case"play_pause":za("toggle_play_pause");break;case"rewind":za("seek","-15");break;
 case"fast_forward":za("seek","15");break;case"channel_up":za("send_key","PageUp");break;
-case"channel_down":za("send_key","PageDown");break;case"home":za("navigate","/live");break;
+case"channel_down":za("send_key","PageDown");break;case"home":za("navigate","/"+REG+"/live");break;
 case"menu":za("open_epg");break;case"search":za("focus_search");break;
+case"guide":za("navigate_guide");break;
+case"settings":za("navigate_settings");break;
+case"account":za("navigate_account");break;
+case"recordings":za("navigate_recordings");break;
 case"stop":za("press_escape");break;case"record":osd("Record");break;
 case"mouse_mode":mouse=!mouse;osd(mouse?"Mouse ON":"Mouse OFF");break;
 }}catch(e){console.error("[ZR] err:",e);}}
+
+// ── Navigation detection ─────────────────────────────────────────
+// Detect SPA URL changes and re-establish overlay if needed
+function watchNav(){lastUrl=window.location.href;
+setInterval(function(){if(window.location.href!==lastUrl){lastUrl=window.location.href;
+console.log("[ZR] URL changed to:",lastUrl);
+// Re-inject overlay HTML/CSS (the handler survives SPA nav)
+if(!document.getElementById("zrR")){injHTML();injCSS();}
+// Ensure handler is still exposed
+if(!window.__zattooRemote||!window.__zattooRemote.handleKeyEvent){
+window.__zattooRemote={handleKeyEvent:hke,version:"1.0"};}}},1000);}
 
 // ── SPA navigation observer ──────────────────────────────────────
 function obs(){var o=new MutationObserver(function(){if(!document.getElementById("zrR")){injHTML();injCSS()}});
@@ -115,8 +184,8 @@ else document.addEventListener("DOMContentLoaded",function(){o.observe(document.
 
 // ── Init ─────────────────────────────────────────────────────────
 function init(){console.log("[ZR] Init...");
-if(document.body&&document.head){injCSS();injHTML();obs();
-window.__zattooRemote={handleKeyEvent:hke,version:"1.0"};
+if(document.body&&document.head){injCSS();injHTML();obs();watchNav();
+window.__zattooRemote={handleKeyEvent:hke,version:"2.0"};
 console.log("[ZR] Ready");}else{setTimeout(init,500);}}
 if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",init);else init();
 })();

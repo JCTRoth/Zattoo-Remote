@@ -96,8 +96,7 @@ pub fn run() {
 
             // Clone handles before moving window into the event loop spawn
             let win_events = window.clone();
-            let win_inject1 = window.clone();
-            let win_inject2 = window.clone();
+            let win_inject = window.clone();
 
             // Forward key events via webview.eval() directly into the page.
             // This calls window.__zattooRemote.handleKeyEvent() which is
@@ -107,6 +106,7 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 while let Some(event_json) = rx.recv().await {
                     if *input_active_clone.lock() {
+                        log::debug!("[Key] Sending event via eval: {}", event_json);
                         let escaped = event_json
                             .replace('\\', "\\\\")
                             .replace('\'', "\\'")
@@ -120,19 +120,37 @@ pub fn run() {
                 }
             });
 
-            // Inject the overlay script into the page after it loads
+            // Inject the overlay script into the page after it loads.
+            // Uses polling to handle slow-loading pages (e.g. DNS delays on Zattoo's third-party resources).
             let overlay_script = include_str!("zattoo_inject.js");
             tauri::async_runtime::spawn(async move {
-                tokio::time::sleep(Duration::from_secs(6)).await;
-                log::info!("Injecting Zattoo Remote overlay...");
-                if let Err(e) = win_inject1.eval(overlay_script) {
-                    log::error!("First injection attempt failed: {}", e);
-                    tokio::time::sleep(Duration::from_secs(4)).await;
-                    log::info!("Retrying overlay injection...");
-                    if let Err(e2) = win_inject2.eval(overlay_script) {
-                        log::error!("Second injection attempt also failed: {}", e2);
+                // Wait an initial 3s for the page to begin loading
+                tokio::time::sleep(Duration::from_secs(3)).await;
+
+                // Poll until injection succeeds (up to ~30s total)
+                let max_attempts = 10;
+                for attempt in 1..=max_attempts {
+                    log::info!(
+                        "Injecting Zattoo Remote overlay (attempt {}/{})...",
+                        attempt,
+                        max_attempts
+                    );
+                    match win_inject.eval(overlay_script) {
+                        Ok(_) => {
+                            log::info!("Overlay injection successful");
+                            return;
+                        }
+                        Err(e) => {
+                            log::warn!(
+                                "Injection attempt {} failed: {}. Retrying in 3s...",
+                                attempt,
+                                e
+                            );
+                            tokio::time::sleep(Duration::from_secs(3)).await;
+                        }
                     }
                 }
+                log::error!("Failed to inject overlay after {} attempts", max_attempts);
             });
 
             Ok(())
