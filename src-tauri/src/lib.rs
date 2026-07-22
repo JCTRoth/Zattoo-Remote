@@ -136,6 +136,9 @@ pub fn run() {
                             .replace('\\', "\\\\")
                             .replace('\'', "\\'")
                             .replace('\n', "\\n");
+                        // Check if overlay exists and handle the key event.
+                        // If the overlay was lost (e.g. after page navigation), the eval
+                        // silently fails and we'll re-inject on the next navigation detection.
                         let script = format!(
                             "window.__zattooRemote && window.__zattooRemote.handleKeyEvent('{}')",
                             escaped
@@ -145,40 +148,48 @@ pub fn run() {
                 }
             });
 
-            // Inject the overlay script into the page after it loads.
-            // Uses polling to handle slow-loading pages (e.g. DNS delays on Zattoo's third-party resources).
+            // Inject the overlay script into the page after it loads, and keep it alive.
+            // The injected script has an idempotency guard (`if(window.__ZR)return;`) so
+            // re-injecting while the overlay is still alive is harmless — it just returns
+            // immediately. This watchdog ensures the overlay survives page navigations.
             let overlay_script = include_str!("zattoo_inject.js");
             tauri::async_runtime::spawn(async move {
-                // Wait an initial 3s for the page to begin loading
+                // Wait an initial 3s for Zattoo to begin loading
                 tokio::time::sleep(Duration::from_secs(3)).await;
 
-                // Poll until injection succeeds (up to ~30s total)
-                let max_attempts = 10;
-                for attempt in 1..=max_attempts {
-                    log::info!(
-                        "Injecting Zattoo Remote overlay (attempt {}/{})...",
-                        attempt,
-                        max_attempts
-                    );
-                    match win_inject.eval(overlay_script) {
-                        Ok(_) => {
-                            log::info!("Overlay injection successful");
-                            // Notify the user that the remote is connected
-                            let ok_script = "window.__zattooRemote && window.__zattooRemote.handleKeyEvent && console.log('[ZR] Zattoo Remote overlay v2 loaded — waiting for input...')";
-                            let _ = win_inject.eval(ok_script);
-                            return;
+                let mut first_injection = true;
+
+                loop {
+                    // Try up to 3 times per cycle (to handle brief page-load windows)
+                    for attempt in 1..=3 {
+                        if first_injection {
+                            log::info!("Injecting Zattoo Remote overlay (attempt {})...", attempt);
                         }
-                        Err(e) => {
-                            log::warn!(
-                                "Injection attempt {} failed: {}. Retrying in 3s...",
-                                attempt,
-                                e
-                            );
-                            tokio::time::sleep(Duration::from_secs(3)).await;
+
+                        match win_inject.eval(overlay_script) {
+                            Ok(_) => {
+                                if first_injection {
+                                    log::info!("Overlay injection successful");
+                                    let ok_script = "console.log('[ZR] Zattoo Remote overlay loaded — waiting for input...')";
+                                    let _ = win_inject.eval(ok_script);
+                                    first_injection = false;
+                                }
+                                break; // success, wait for next cycle
+                            }
+                            Err(e) => {
+                                if attempt < 3 {
+                                    tokio::time::sleep(Duration::from_secs(2)).await;
+                                }
+                                if first_injection {
+                                    log::warn!("Injection attempt {} failed: {}", attempt, e);
+                                }
+                            }
                         }
                     }
+
+                    // Health-check interval: re-inject every 10s to survive page navigations
+                    tokio::time::sleep(Duration::from_secs(10)).await;
                 }
-                log::error!("Failed to inject overlay after {} attempts", max_attempts);
             });
 
             Ok(())

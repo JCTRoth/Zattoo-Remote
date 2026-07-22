@@ -59,28 +59,28 @@
   "favorites": [
     { "name": "ZDF", "channel": "ZDF", "slug": "zdf", "color": "red" },
     { "name": "Das Erste", "channel": "Das Erste", "slug": "daserste", "color": "green" },
-    { "name": "RTL", "channel": "RTL", "slug": "rtl", "color": "yellow" },
-    { "name": "ProSieben", "channel": "ProSieben", "slug": "prosieben", "color": "blue" }
+    { "name": "RTL", "channel": "RTL", "slug": "rtl_deutschland", "color": "yellow" },
+    { "name": "ProSieben", "channel": "ProSieben", "slug": "pro7_deutschland", "color": "blue" }
   ],
   "channel_map": {
     "0": { "name": "arte", "search": "arte", "slug": "arte" },
     "1": { "name": "Das Erste", "search": "Das Erste", "slug": "daserste" },
     "2": { "name": "ZDF", "search": "ZDF", "slug": "zdf" },
-    "3": { "name": "RTL", "search": "RTL", "slug": "rtl" },
-    "4": { "name": "Sat.1", "search": "Sat.1", "slug": "sat1" },
-    "5": { "name": "ProSieben", "search": "ProSieben", "slug": "prosieben" },
-    "6": { "name": "VOX", "search": "VOX", "slug": "vox" },
-    "7": { "name": "kabel eins", "search": "kabel eins", "slug": "kabel1" },
-    "8": { "name": "RTL Zwei", "search": "RTL Zwei", "slug": "rtl2" },
+    "3": { "name": "RTL", "search": "RTL", "slug": "rtl_deutschland" },
+    "4": { "name": "Sat.1", "search": "Sat.1", "slug": "sat1_deutschland" },
+    "5": { "name": "ProSieben", "search": "ProSieben", "slug": "pro7_deutschland" },
+    "6": { "name": "VOX", "search": "VOX", "slug": "vox_deutschland" },
+    "7": { "name": "kabel eins", "search": "kabel eins", "slug": "kabel1_deutschland" },
+    "8": { "name": "RTL Zwei", "search": "RTL Zwei", "slug": "rtl2_deutschland" },
     "9": { "name": "3sat", "search": "3sat", "slug": "3sat" },
     "11": { "name": "ZDFneo", "search": "ZDFneo", "slug": "zdfneo" },
     "22": { "name": "ZDFinfo", "search": "ZDFinfo", "slug": "zdfinfo" },
-    "33": { "name": "sixx", "search": "sixx", "slug": "sixx" },
-    "44": { "name": "DMAX", "search": "DMAX", "slug": "dmax" },
-    "55": { "name": "Tele 5", "search": "Tele 5", "slug": "tele5" },
-    "66": { "name": "N24 Doku", "search": "N24 Doku", "slug": "n24-doku" },
-    "77": { "name": "Comedy Central", "search": "Comedy Central", "slug": "comedy-central" },
-    "88": { "name": "Nitro", "search": "Nitro", "slug": "nitro" },
-    "99": { "name": "Super RTL", "search": "Super RTL", "slug": "super-rtl" }
+    "33": { "name": "sixx", "search": "sixx", "slug": "sixx_deutschland" },
+    "44": { "name": "DMAX", "search": "DMAX", "slug": "dmax_deutschland" },
+    "55": { "name": "Tele 5", "search": "Tele 5", "slug": "tele5_deutschland" },
+    "66": { "name": "N24 Doku", "search": "N24 Doku", "slug": "welt_deutschland" },
+    "77": { "name": "Comedy Central", "search": "Comedy Central", "slug": "comedycentral_deutschland" },
+    "88": { "name": "Nitro", "search": "Nitro", "slug": "nitro_deutschland" },
+    "99": { "name": "Super RTL", "search": "Super RTL", "slug": "superrtl_deutschland" }
   }
 }

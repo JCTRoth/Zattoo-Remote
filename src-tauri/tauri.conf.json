@@ -14,8 +14,8 @@
         "title": "Zattoo Remote",
         "width": 1280,
         "height": 720,
-        "fullscreen": false,
-        "decorations": true,
+        "fullscreen": true,
+        "decorations": false,
         "resizable": true,
         "center": true,
         "url": "https://zattoo.com"
