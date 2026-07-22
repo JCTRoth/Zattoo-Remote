@@ -1,5 +1,4 @@
-# Zattoo Remote — MX3 Remote Controller
-
+# Zattoo Webview Wrapper for Remote Controls
 A cross-platform **Tauri v2** desktop application that turns your **MX3-style remote** (or any keyboard) into a fully-featured remote control for [Zattoo](https://zattoo.com) live TV streaming.
 
 > Built with Rust + JavaScript (injected) + Tauri v2

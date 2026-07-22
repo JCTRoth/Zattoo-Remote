@@ -15,6 +15,9 @@ use tokio::sync::mpsc::UnboundedSender;
 /// Represents a filtered remote key event ready for the frontend.
 #[derive(Debug, Clone, Serialize)]
 pub struct RemoteKeyEvent {
+    /// Discriminator for the async event loop
+    #[serde(rename = "type")]
+    pub event_type: String,
     /// The mapped action name (e.g., "up", "down", "ok", "digit_1")
     pub action: String,
     /// Human-readable label for OSD display
@@ -23,6 +26,31 @@ pub struct RemoteKeyEvent {
     pub scan_code: u32,
     /// Whether this is a key-down (true) or key-up (false) event
     pub is_press: bool,
+}
+
+/// A diagnostic / log message sent from the input listener to the webview console.
+#[derive(Debug, Clone, Serialize)]
+pub struct DiagnosticMessage {
+    /// Always "diagnostic"
+    #[serde(rename = "type")]
+    pub msg_type: String,
+    /// Log level: "info", "warn", "error"
+    pub level: String,
+    /// The message text
+    pub message: String,
+}
+
+/// Send a diagnostic message through the key-event channel.
+/// The async event loop in lib.rs will forward it to the webview console.
+pub fn send_diagnostic(sender: &UnboundedSender<String>, level: &str, message: &str) {
+    let diag = DiagnosticMessage {
+        msg_type: "diagnostic".into(),
+        level: level.into(),
+        message: message.into(),
+    };
+    if let Ok(json) = serde_json::to_string(&diag) {
+        let _ = sender.send(json);
+    }
 }
 
 /// Wraps the global input listener with graceful shutdown support.
@@ -80,64 +108,113 @@ mod linux_input {
     pub fn start_evdev_listener(running: Arc<AtomicBool>, sender: UnboundedSender<String>) {
         let session_type = std::env::var("XDG_SESSION_TYPE").unwrap_or_default();
 
+        send_diagnostic(
+            &sender,
+            "info",
+            &format!("[input] Detected XDG_SESSION_TYPE={:?}", session_type),
+        );
+
         // On X11, prefer rdev — it handles mouse events and has better responsiveness
         if session_type == "x11" || session_type.is_empty() {
-            log::info!("[input] XDG_SESSION_TYPE={:?}, using rdev (X11)", session_type);
+            send_diagnostic(
+                &sender,
+                "info",
+                "[input] Using rdev listener (X11 detected or unknown session type)",
+            );
             super::rdev_input::start_rdev_listener(running, sender);
             return;
         }
 
-        log::info!("[input] XDG_SESSION_TYPE={:?}, using evdev (Wayland)", session_type);
+        send_diagnostic(
+            &sender,
+            "info",
+            "[input] Using evdev listener (Wayland detected)",
+        );
         start_evdev_only_listener(running, sender);
     }
 
-    /// Fallback: check if user can access evdev devices. Warn if not.
+    /// Check whether the user can read any evdev device. Scans /dev/input/event*.
     fn check_evdev_access() -> bool {
-        let paths = ["/dev/input/event0", "/dev/input/event1", "/dev/input/event2"];
-        for p in &paths {
-            if std::path::Path::new(p).exists() {
-                if let Ok(f) = std::fs::File::open(p) {
-                    let _ = f; // can open
-                    return true;
-                } else {
-                    return false; // exists but can't open
+        let dir = std::path::Path::new("/dev/input");
+        if !dir.is_dir() {
+            log::error!("[evdev] /dev/input/ does not exist on this system");
+            return false;
+        }
+
+        let mut found_openable = false;
+        let mut found_any = false;
+
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let path_str = path.to_string_lossy();
+                if !path_str.contains("event") {
+                    continue;
+                }
+                found_any = true;
+                match std::fs::File::open(&path) {
+                    Ok(_f) => {
+                        log::info!("[evdev] ✓ Can open {}", path_str);
+                        found_openable = true;
+                    }
+                    Err(e) => {
+                        log::warn!("[evdev] ✗ Cannot open {}: {}", path_str, e);
+                    }
                 }
             }
         }
-        false // none found
+
+        if !found_any {
+            log::error!("[evdev] No /dev/input/event* devices found at all");
+            return false;
+        }
+
+        if !found_openable {
+            log::error!(
+                "[evdev] Found event devices but cannot open any. \
+                 Under Wayland you likely need 'input' group membership.\n\
+                 Run:  sudo usermod -aG input $USER && newgrp input\n\
+                 Then restart the app."
+            );
+        }
+
+        found_openable
     }
 
     /// Start the pure evdev listener for Wayland.
     fn start_evdev_only_listener(running: Arc<AtomicBool>, sender: UnboundedSender<String>) {
         std::thread::spawn(move || {
+            send_diagnostic(&sender, "info", "[evdev] Checking evdev access...");
+
             if !check_evdev_access() {
-                log::warn!(
+                send_diagnostic(&sender, "error",
                     "[evdev] Cannot read /dev/input/event* devices. \
                      Under Wayland you need 'input' group membership.\n\
-                     Run: sudo usermod -aG input $USER\n\
-                     Then log out and back in.\n\
-                     Falling back to rdev (will not work on pure Wayland)."
+                     Run:  sudo usermod -aG input $USER\n\
+                     Then log out and back in. Falling back to rdev (won't work on pure Wayland)."
                 );
                 // Try rdev anyway as fallback
                 super::rdev_input::start_rdev_listener(running, sender);
                 return;
             }
 
+            send_diagnostic(&sender, "info", "[evdev] evdev access OK, scanning for keyboards...");
+
             // Find and open all keyboard devices
             let devices = find_keyboard_devices();
-            log::info!(
-                "[evdev] Found {} keyboard device(s): {:?}",
-                devices.len(),
-                devices
+            send_diagnostic(&sender, "info",
+                &format!("[evdev] Found {} keyboard device(s): {:?}", devices.len(), devices)
             );
 
             if devices.is_empty() {
-                log::error!(
+                send_diagnostic(&sender, "error",
                     "[evdev] No keyboard devices found in /dev/input/event*! \
                      Ensure you have read permissions (try: sudo usermod -aG input $USER, then re-login)"
                 );
                 return;
             }
+
+            send_diagnostic(&sender, "info", "[evdev] Starting keyboard listeners...");
 
             // Threaded approach: one reader thread per device
             let mut handles = Vec::new();
@@ -226,40 +303,68 @@ mod linux_input {
         let mut devices = Vec::new();
         let input_dir = std::path::Path::new("/dev/input");
 
+        if !input_dir.is_dir() {
+            log::error!("[evdev] /dev/input/ directory missing");
+            return devices;
+        }
+
         if let Ok(entries) = std::fs::read_dir(input_dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
                 let path_str = path.to_string_lossy().to_string();
 
-                // Only consider event* devices (not mice, js, etc.)
                 if !path_str.contains("event") {
                     continue;
                 }
 
-                // Try to open and check if it supports keyboard keys
-                if let Ok(dev) = Device::open(&path) {
-                    if let Some(keys) = dev.supported_keys() {
-                        let mut has_keys = false;
-                        for key in keys.iter() {
-                            let code = key.code();
-                            // Space bar (57), A-Z (16-25, 30-38, 44-50), Enter (28), arrows (103-108)
-                            if code == 57
-                                || (code >= 16 && code <= 25)
-                                || (code >= 30 && code <= 38)
-                                || (code >= 44 && code <= 50)
-                                || code == 28
-                                || (code >= 103 && code <= 108)
-                            {
-                                has_keys = true;
-                                break;
-                            }
-                        }
-                        if has_keys {
-                            devices.push(path_str);
-                        }
+                let dev = match Device::open(&path) {
+                    Ok(d) => d,
+                    Err(e) => {
+                        log::debug!("[evdev] Cannot open {}: {}", path_str, e);
+                        continue;
                     }
+                };
+
+                let name = dev.name().unwrap_or("unknown").to_string();
+
+                // Check supported keys bitmap
+                let keys = match dev.supported_keys() {
+                    Some(k) => k,
+                    None => {
+                        log::debug!("[evdev] {} ({}): no supported_keys(), skipping", path_str, name);
+                        continue;
+                    }
+                };
+
+                // Broad keyboard detection: check for common alphanumeric keys or KEY_1 (code 2)
+                const KEY_CODES: &[u32] = &[
+                    1,   // KEY_ESC
+                    2,   // KEY_1
+                    16,  // KEY_Q
+                    28,  // KEY_ENTER
+                    57,  // KEY_SPACE
+                    103, // KEY_UP
+                ];
+
+                let has_keys = keys.iter().any(|k| KEY_CODES.contains(&(k.code() as u32)));
+
+                if has_keys {
+                    log::info!("[evdev] ✓ Keyboard device: {} ({})", path_str, name);
+                    devices.push(path_str);
+                } else {
+                    let count = keys.iter().count();
+                    log::debug!("[evdev] - Skipping {} ({}): {} keys, none match keyboard", path_str, name, count);
                 }
             }
+        }
+
+        if devices.is_empty() {
+            log::error!(
+                "[evdev] No keyboard-capable devices found in /dev/input/event*! \
+                 Ensure you have read permissions (try: sudo usermod -aG input $USER, then re-login)"
+            );
+        } else {
+            log::info!("[evdev] Found {} keyboard device(s)", devices.len());
         }
 
         devices
@@ -361,6 +466,7 @@ mod linux_input {
         };
 
         Some(RemoteKeyEvent {
+            event_type: "key_event".into(),
             action: action.to_string(),
             label: label.to_string(),
             scan_code: code as u32,
@@ -411,6 +517,7 @@ pub(crate) mod rdev_input {
                             _ => return,
                         };
                         let event = RemoteKeyEvent {
+                            event_type: "key_event".into(),
                             action: action.to_string(),
                             label: format!("Mouse {}", action),
                             scan_code: 0,
@@ -422,6 +529,7 @@ pub(crate) mod rdev_input {
                     }
                     EventType::MouseMove { x, y } => {
                         let event = serde_json::json!({
+                            "type": "key_event",
                             "action": "mouse_move",
                             "label": "",
                             "scan_code": 0,
@@ -491,6 +599,7 @@ pub(crate) mod rdev_input {
         };
 
         Some(RemoteKeyEvent {
+            event_type: "key_event".into(),
             action: action.to_string(),
             label: label.to_string(),
             scan_code: 0,

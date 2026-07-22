@@ -53,6 +53,11 @@ async fn get_key_mapping_json(state: tauri::State<'_, AppState>) -> Result<Strin
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Default to info-level logging so users can see diagnostic messages.
+    // Override with RUST_LOG env var for more detail (e.g. RUST_LOG=debug).
+    if std::env::var("RUST_LOG").is_err() {
+        std::env::set_var("RUST_LOG", "info");
+    }
     env_logger::init();
 
     let key_mapper = Arc::new(Mutex::new(KeyMapper::new()));
@@ -98,13 +103,33 @@ pub fn run() {
             let win_events = window.clone();
             let win_inject = window.clone();
 
-            // Forward key events via webview.eval() directly into the page.
-            // This calls window.__zattooRemote.handleKeyEvent() which is
-            // defined by the injected overlay script. Using eval() is more
-            // reliable than Tauri events because it doesn't depend on the
-            // __TAURI__ API being available on remote pages.
+            // Forward events via webview.eval() directly into the page.
+            // Key events call window.__zattooRemote.handleKeyEvent().
+            // Diagnostic messages are logged to the webview console.
+            // Using eval() is more reliable than Tauri events because it
+            // doesn't depend on the __TAURI__ API being available on remote pages.
             tauri::async_runtime::spawn(async move {
                 while let Some(event_json) = rx.recv().await {
+                    // Check message type
+                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&event_json) {
+                        let msg_type = parsed.get("type").and_then(|v| v.as_str()).unwrap_or("key_event");
+
+                        if msg_type == "diagnostic" {
+                            // Forward diagnostic/log messages to the webview console
+                            let level = parsed.get("level").and_then(|v| v.as_str()).unwrap_or("info");
+                            let message = parsed.get("message").and_then(|v| v.as_str()).unwrap_or("");
+                            log::info!("[diagnostic] {}: {}", level, message);
+                            let escaped = message
+                                .replace('\\', "\\\\")
+                                .replace('\'', "\\'")
+                                .replace('\n', "\\n");
+                            let script = format!("window.__zattooRemote && console && console.{}('[ZR Diagnostic] {}')", level, escaped);
+                            let _ = win_events.eval(&script);
+                            continue;
+                        }
+                    }
+
+                    // Normal key event handling
                     if *input_active_clone.lock() {
                         log::debug!("[Key] Sending event via eval: {}", event_json);
                         let escaped = event_json
@@ -138,6 +163,9 @@ pub fn run() {
                     match win_inject.eval(overlay_script) {
                         Ok(_) => {
                             log::info!("Overlay injection successful");
+                            // Notify the user that the remote is connected
+                            let ok_script = "window.__zattooRemote && window.__zattooRemote.handleKeyEvent && console.log('[ZR] Zattoo Remote overlay v2 loaded — waiting for input...')";
+                            let _ = win_inject.eval(ok_script);
                             return;
                         }
                         Err(e) => {
