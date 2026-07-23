@@ -174,15 +174,46 @@ if(!document.getElementById("zrR")){injHTML();injCSS();}
 if(!window.__zattooRemote||!window.__zattooRemote.handleKeyEvent){
 window.__zattooRemote={handleKeyEvent:hke,version:"1.0"};}}},1000);}
 
+// ── Toast / popup auto-dismisser ──────────────────────────────────
+// Zattoo shows toasts ("Verringerte Videoqualität", etc.) that block key input.
+// Finds them by text content and dismisses them.
+function dismissToasts(){
+if(window._zrToastTimer)return;window._zrToastTimer=1; // prevent duplicate timers on SPA nav
+var kw='verringerte,videoqualität,kopierschutz,copy protection,reduced quality,sd qualit';
+function tryClose(el){
+if(!el||el._zrDismissed||el.nodeType!==1)return;el._zrDismissed=true;
+console.log("[ZR] Auto-dismiss:",(el.textContent||'').slice(0,80).trim());
+// Click any close button inside or the element itself
+var btns=el.querySelectorAll('button, [role="button"], svg, a');
+for(var i=0;i<btns.length;i++){btns[i].click();return;}
+try{var p=el.parentNode;if(p)p.removeChild(el);}catch(e){}
+}
+function scan(){
+var kws=kw.split(',');
+// Only scan fixed/sticky positioned containers and recent additions (not whole DOM)
+document.querySelectorAll('[role="alert"],[role="dialog"],[class*="banner" i],[class*="snackbar" i],[class*="toast" i],[class*="notification" i],[class*="overlay" i],[class*="popup" i],[style*="fixed"],[style*="sticky"]').forEach(function(el){
+if(el._zrDismissed)return;
+var t=(el.textContent||'').toLowerCase();if(t.length<10||t.length>400)return;
+for(var i=0;i<kws.length;i++){if(t.indexOf(kws[i])>=0){tryClose(el);return;}}
+});
+// Also check any element whose parent was just added (catch React-rendered toasts)
+var all=document.querySelectorAll('[class*="message" i],[data-soul*="MESSAGE" i],[data-soul*="NOTIFICATION" i],[data-soul*="TOAST" i]');
+for(var i=0;i<all.length;i++){var t=(all[i].textContent||'').toLowerCase();if(t.length<10||t.length>400)continue;
+for(var j=0;j<kws.length;j++){if(t.indexOf(kws[j])>=0){tryClose(all[i]);break;}}}
+}
+scan();setInterval(scan,1500); // check every 1.5s
+}
+
 // ── SPA navigation observer ──────────────────────────────────────
-function obs(){var o=new MutationObserver(function(){if(!document.getElementById("zrR")){injHTML();injCSS()}});
-if(document.body)o.observe(document.body,{childList:true,subtree:true});
-else document.addEventListener("DOMContentLoaded",function(){o.observe(document.body,{childList:true,subtree:true})});}
+function obs(){try{if(!document||!document.body)return;
+var o=new MutationObserver(function(){try{if(document&&!document.getElementById("zrR")){injHTML();injCSS()}}catch(e){}});
+o.observe(document.body,{childList:true,subtree:true});}catch(e){}
+if(!document.body)document.addEventListener("DOMContentLoaded",function(){try{obs();}catch(e){}});}
 
 // ── Init ─────────────────────────────────────────────────────────
-function init(){console.log("[ZR] Init...");
-if(document.body&&document.head){injCSS();injHTML();obs();watchNav();
+function init(){try{console.log("[ZR] Init...");
+if(document&&document.body&&document.head){injCSS();injHTML();obs();watchNav();dismissToasts();
 window.__zattooRemote={handleKeyEvent:hke,version:"2.0"};
-console.log("[ZR] Ready");}else{setTimeout(init,500);}}
+console.log("[ZR] Ready");}else{setTimeout(init,500);}}catch(e){console.error("[ZR] Init error:",e);setTimeout(init,500);}}
 if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",init);else init();
 })();

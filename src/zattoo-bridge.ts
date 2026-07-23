@@ -84,7 +84,12 @@ export async function initZattooBridge(): Promise<void> {
 // ── Key Handler ─────────────────────────────────────────────────────
 
 function handleKeyPress(event: RemoteKeyEvent): void {
-  const { action, label } = event;
+  const { action, label, is_press } = event;
+
+  // Defensive: ignore key-up events (the event listener already filters,
+  // but this provides defense-in-depth if handleKeyPress is called directly)
+  if (!is_press) return;
+
   console.log(`[ZattooBridge] Key: ${action} (${label})`);
 
   // Show OSD label
@@ -329,3 +334,41 @@ function showOsdVolume(level: number): void {
     if (channelOsd) channelOsd.classList.remove("visible");
   }, 1500);
 }
+
+// ── Test exports ──────────────────────────────────────────────────
+// Exported for unit testing only. Not part of the public API.
+export type { KeyMappingConfig, KeyMappingEntry, FavoriteChannel, RemoteKeyEvent };
+
+export const __test__ = {
+  handleKeyPress,
+  handleDigitKey,
+  handleColorKey,
+  handleActionKey,
+  confirmChannel,
+  executeZattooAction,
+  showOsd,
+  showOsdFavorite,
+  showOsdVolume,
+  showChannelInput,
+  hideChannelInput,
+  getChannelInputBuffer: () => channelInputBuffer,
+  getVolumeLevel: () => volumeLevel,
+  getMouseModeActive: () => mouseModeActive,
+  getConfig: () => config,
+  resetState: () => {
+    channelInputBuffer = "";
+    if (channelInputTimer) clearTimeout(channelInputTimer);
+    channelInputTimer = null;
+    volumeLevel = 50;
+    mouseModeActive = false;
+    config = null;
+    if (osdTimer) clearTimeout(osdTimer);
+    osdTimer = null;
+  },
+  setConfig: (c: KeyMappingConfig) => {
+    config = c;
+  },
+  setVolumeLevel: (v: number) => {
+    volumeLevel = v;
+  },
+};
