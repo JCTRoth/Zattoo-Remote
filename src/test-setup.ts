@@ -22,10 +22,22 @@ if (typeof window !== "undefined") {
 
 // Clear DOM between tests
 beforeEach(() => {
-  document.body.innerHTML = "";
+  // Ensure document.body exists before clearing
+  if (document?.body) {
+    document.body.innerHTML = "";
+  } else if (document?.documentElement) {
+    document.documentElement.innerHTML = "<body></body>";
+  }
   // Reset all mocks
   vi.clearAllMocks();
 });
+
+// Prevent window.close() from destroying the jsdom document across tests.
+// Many Tauri apps call window.close() on certain shortcuts, and jsdom's
+// native implementation actually closes the document, corrupting the
+// test environment for all subsequent tests.
+const origClose = window.close;
+window.close = vi.fn() as typeof window.close;
 
 // Suppress console noise during tests (optional)
 const originalConsole = { ...console };
