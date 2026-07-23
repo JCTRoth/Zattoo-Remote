@@ -18,6 +18,7 @@ Thumbs.db
 # Environment
 .env
 .env.local
+e2e/.env
 
 # Logs
 *.log
