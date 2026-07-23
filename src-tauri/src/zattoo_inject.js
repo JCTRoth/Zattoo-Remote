@@ -15,6 +15,16 @@
  */
 (function(){'use strict';if(window.__ZR)return;window.__ZR=true;
 
+// ── Suppress noise from Zattoo's own scripts ────────────────────
+// Zattoo's Bitmovin player adapter throws unhandled promise rejections
+// (e.g. "TypeError: undefined is not an object (evaluating 'i.parse')").
+// These are Zattoo bugs we can't fix, but we can prevent them from
+// flooding the console and interfering with our error monitoring.
+window.addEventListener('unhandledrejection',function(e){
+var s=(e&&e.reason&&e.reason.message)||(e&&e.reason&&String(e.reason))||'';
+if(s.indexOf('i.parse')>=0||s.indexOf('bitmovin')>=0||s.indexOf('player')>=0){e.preventDefault();}
+});
+
 // ── Embedded config (mirrors src/key-config.json v1.1) ───────────
 var BASE='https://zattoo.com',REG='de';
 var CMap={"0":{name:"arte",search:"arte",slug:"arte"},
@@ -184,8 +194,11 @@ function tryClose(el){
 if(!el||el._zrDismissed||el.nodeType!==1)return;el._zrDismissed=true;
 console.log("[ZR] Auto-dismiss:",(el.textContent||'').slice(0,80).trim());
 // Click any close button inside or the element itself
+// Use forEach with a type guard to avoid calling .click() on non-HTMLElements (e.g. SVG)
 var btns=el.querySelectorAll('button, [role="button"], svg, a');
-for(var i=0;i<btns.length;i++){btns[i].click();return;}
+for(var i=0;i<btns.length;i++){if(typeof btns[i].click==='function'){btns[i].click();return;}}
+// If no clickable button found, try dispatching a click event on the element itself
+try{var evt=new MouseEvent('click',{bubbles:true,cancelable:true});el.dispatchEvent(evt);}catch(e){}
 try{var p=el.parentNode;if(p)p.removeChild(el);}catch(e){}
 }
 function scan(){

@@ -19,6 +19,82 @@ A cross-platform **Tauri v2** desktop application that turns your **MX3-style re
 - **Fullscreen/kiosk mode** — Borderless fullscreen for a TV-like experience
 - **System tray** — Quick settings and quit access
 
+## Testing
+
+The project includes a comprehensive test suite with **122 tests** across two test runners.
+
+### Test Infrastructure
+
+| Runner | Tests | What it covers |
+|--------|-------|----------------|
+| **Vitest** (unit) | 97 | Key config validation, bridge logic, injected script logic, window controls |
+| **Playwright** (E2E) | 25 | Inject script behavior in Chromium + real Zattoo.com login and channel navigation |
+
+### Quick Start
+
+```bash
+# Install dependencies (already done if you built the app)
+npm install
+npx playwright install chromium     # Download browser for E2E tests
+```
+
+### Running Tests
+
+```bash
+# Unit tests (fast — <1s)
+npm test
+
+# Watch mode
+npm run test:watch
+
+# With coverage report
+npm run test:coverage
+
+# E2E tests (inject script in Chromium — ~20s)
+npm run test:e2e
+
+# E2E tests with visible browser
+npm run test:e2e:ui
+
+# Zattoo login tests only (requires credentials — ~45s)
+npm run test:e2e -- --grep @zattoo-login
+```
+
+### Zattoo Login Tests
+
+The login tests authenticate against the real Zattoo.com website. To run them:
+
+1. Copy the example credentials file:
+   ```bash
+   cp e2e/.env.example e2e/.env
+   ```
+2. Edit `e2e/.env` with your Zattoo email and password
+3. Run: `npm run test:e2e -- --grep @zattoo-login`
+
+> **Security:** `e2e/.env` is gitignored — credentials stay on your machine.
+
+### Test Structure
+
+```
+src/
+├── test-setup.ts                    # Vitest global setup (jsdom, mocks)
+├── __mocks__/
+│   └── tauri-api.ts                 # Tauri API mocks (invoke, listen, window)
+├── key-config.test.ts               # Key mapping validation (16 tests)
+├── zattoo-bridge.test.ts            # Bridge logic (51 tests)
+├── zattoo-inject.test.ts            # Injected script logic (23 tests)
+├── main.test.ts                     # Window controls (7 tests)
+└── vitest.config.ts                 # Vitest configuration
+
+e2e/
+├── channel-navigation.spec.ts       # Inject script E2E (19 tests)
+├── zattoo-login.spec.ts             # Zattoo login E2E (6 tests)
+├── test-harness.html                # E2E test page
+├── .env                             # Gitignored — your Zattoo credentials
+├── .env.example                     # Template for credentials
+└── playwright.config.ts             # Playwright configuration
+```
+
 ### Default MX3 Key Layout
 
 | MX3 Key | Function | Zattoo Action |
@@ -111,6 +187,26 @@ npm run tauri build
 zattoo-remote/
 ├── index.html                        # Fallback loading page (shown briefly before Zattoo)
 ├── package.json                      # Node.js dependencies & scripts
+├── vitest.config.ts                  # Vitest unit test configuration
+├── playwright.config.ts              # Playwright E2E test configuration
+├── .gitignore
+├── src/
+│   ├── key-config.json               # Default MX3 key mapping (user-customizable)
+│   ├── main.ts                       # Legacy — kept for reference
+│   ├── zattoo-bridge.ts              # Legacy — kept for reference
+│   ├── test-setup.ts                 # Vitest global setup (jsdom, mocks)
+│   ├── __mocks__/
+│   │   └── tauri-api.ts              # Tauri API mocks for testing
+│   ├── key-config.test.ts            # Key mapping validation (16 tests)
+│   ├── zattoo-bridge.test.ts         # Bridge logic (51 tests)
+│   ├── zattoo-inject.test.ts         # Injected script logic (23 tests)
+│   └── main.test.ts                  # Window controls (7 tests)
+├── e2e/
+│   ├── test-harness.html             # E2E test page for inject script
+│   ├── channel-navigation.spec.ts    # Inject script E2E (19 tests)
+│   ├── zattoo-login.spec.ts          # Zattoo login E2E (6 tests)
+│   ├── .env                          # Gitignored — Zattoo credentials
+│   └── .env.example                  # Credentials template
 ├── src-tauri/
 │   ├── Cargo.toml                    # Rust dependencies
 │   ├── tauri.conf.json               # Tauri app configuration (window → zattoo.com)
@@ -123,12 +219,8 @@ zattoo-remote/
 │       ├── key_mapper.rs             # Key mapping logic + favorites
 │       ├── zattoo_controller.rs      # Volume control + Tauri commands
 │       └── zattoo_inject.js          # Injected overlay JS (OSD, key handling, Zattoo DOM)
-├── src/
-│   ├── key-config.json               # Default MX3 key mapping (user-customizable)
-│   ├── main.ts                       # Legacy — kept for reference
-│   └── zattoo-bridge.ts              # Legacy — kept for reference
 ├── README.md
-└── .gitignore
+└── LICENSE
 ```
 
 ---

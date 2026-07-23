@@ -437,4 +437,90 @@ test.describe("Error resilience", () => {
     // (the init function has a setTimeout retry)
     await page.waitForTimeout(1500);
   });
+
+  test("toast dismisser handles SVG elements without crashing", async ({ page }) => {
+    const consoleMsgs: Array<{ type: string; text: string }> = [];
+    page.on("console", msg => consoleMsgs.push({ type: msg.type(), text: msg.text() }));
+
+    await injectAndWait(page);
+
+    // Create a toast with an SVG child — this previously crashed
+    // because SVG elements don't have a .click() method.
+    await page.evaluate(() => {
+      const toast = document.createElement("div");
+      toast.setAttribute("role", "alert");
+      toast.textContent = "Verringerte Videoqualität";
+      // Add an SVG element (no .click() method — crashes the old code)
+      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      svg.setAttribute("width", "20");
+      svg.setAttribute("height", "20");
+      svg.setAttribute("viewBox", "0 0 20 20");
+      toast.appendChild(svg);
+      document.body.appendChild(toast);
+    });
+
+    // Wait for the dismiss scan to run (1500ms interval)
+    await page.waitForTimeout(2000);
+
+    // The dismisser should have either:
+    // 1. Marked it as dismissed, or
+    // 2. Removed it from DOM, or
+    // 3. At minimum, not crashed the script
+    const toastState = await page.evaluate(() => {
+      const toast = document.querySelector('[role="alert"]');
+      if (!toast) return "removed";
+      return (toast as unknown as Record<string, unknown>)?.__zrDismissed === true
+        ? "dismissed"
+        : "found";
+    });
+    // "removed" or "dismissed" are both OK — the key is no crash occurred
+    expect(["removed", "dismissed"]).toContain(toastState);
+
+    // Verify no "click is not a function" error was thrown
+    const logs = getConsoleLogs(consoleMsgs);
+    const crashLogs = logs.filter(l =>
+      l.text.includes("click is not a function") ||
+      l.text.includes("is not an object")
+    );
+    expect(crashLogs.length).toBe(0);
+  });
+
+  test("unhandled rejection from Bitmovin is suppressed", async ({ page }) => {
+    const consoleMsgs: Array<{ type: string; text: string }> = [];
+    page.on("console", msg => consoleMsgs.push({ type: msg.type(), text: msg.text() }));
+
+    await injectAndWait(page);
+
+    // Simulate the Bitmovin error and verify the handler intercepts it.
+    // We trigger a real unhandled rejection (no .catch()) that matches the pattern.
+    // The injected handler should call preventDefault() to suppress the console warning.
+    await page.evaluate(() => {
+      // The handler is installed by the inject script.
+      // We fire a rejection matching the Bitmovin pattern.
+      // To avoid leaking the rejection, we add a catch after the event loop tick.
+      const p = Promise.reject(
+        new Error("TypeError: undefined is not an object (evaluating 'i.parse')")
+      );
+      // Add catch asynchronously so the rejection is temporarily unhandled
+      setTimeout(() => p.catch(() => {}), 0);
+    });
+
+    // Wait for the rejection to be processed
+    await page.waitForTimeout(500);
+
+    // Verify the console does NOT contain the "Unhandled Promise Rejection" message
+    // (the handler suppresses it). Since we can't easily check for the absence of
+    // something that might not appear, we verify at least our handler ran.
+    const logs = getConsoleLogs(consoleMsgs);
+    // The rejection itself shouldn't appear as an uncaught error in the console
+    const hasUnhandled = logs.some(l =>
+      l.text.includes("Unhandled Promise Rejection") ||
+      l.text.includes("unhandled") ||
+      (l.text.includes("i.parse") && l.level === "error")
+    );
+
+    // The inject script's handler should prevent the error from leaking to console.
+    // If it didn't, the test fails — meaning the suppression isn't working.
+    expect(hasUnhandled).toBe(false);
+  });
 });
