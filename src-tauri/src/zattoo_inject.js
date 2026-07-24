@@ -40,6 +40,32 @@
     }
   });
 
+  // ── Block Zattoo native keyboard shortcuts ────────────────────
+  // Zattoo intercepts certain single-letter keys for its own shortcuts
+  // (k, l, j, h, f, m, b, a, c, t). Our remote control never sends
+  // these keys, but if a stray physical key press reaches the page
+  // (e.g. during the brief window before our overlay injects), we
+  // block them at the capture phase so Zattoo doesn't act on them.
+  // Arrow keys are NOT blocked — we dispatch them intentionally for
+  // program guide navigation.
+  function blockZattooShortcuts() {
+    window.addEventListener(
+      "keydown",
+      function (e) {
+        var key = e.key;
+        if (
+          key === "k" || key === "l" || key === "j" || key === "h" ||
+          key === "b" || key === "a" || key === "c" || key === "t" ||
+          key === "f" || key === "m"
+        ) {
+          e.stopImmediatePropagation();
+          e.preventDefault();
+        }
+      },
+      true
+    );
+  }
+
   // ── Embedded config (mirrors src/key-config.json v1.1) ─────────
   var BASE_URL = "https://zattoo.com";
   var REGION = "de";
@@ -73,8 +99,9 @@
     { name: "ProSieben", channel: "ProSieben", slug: "pro7_deutschland", color: "blue" },
   ];
 
-  var CHANNEL_TIMEOUT = 2000;
+  var CHANNEL_TIMEOUT = 500;
   var VOLUME_STEP = 5;
+  var currentVolume = 50; // 0–100, initial guess
   var channelBuffer = "";
   var channelTimer = null;
   var osdTimer = null;
@@ -381,6 +408,80 @@
       case "navigate_recordings":
         window.location.href = BASE_URL + "/recordings";
         break;
+
+      case "record_program":
+        // Record the currently focused program via Zattoo's context menu.
+        // Strategy 1: Look for any visible record-related button or icon
+        function tryRecord() {
+          // Direct record button in the player or channel info area
+          var btn = document.querySelector(
+            '[data-soul*="RECORD"] button,' +
+            'button[data-soul*="RECORD" i],' +
+            '[data-testid*="record" i],' +
+            '[aria-label*="record" i],[aria-label*="aufnahme" i],' +
+            'button[title*="Record" i],button[title*="Aufnahme" i]'
+          );
+          if (btn && btn.offsetParent !== null && typeof btn.click === "function") {
+            btn.click();
+            showOsd("⏺ Record");
+            console.log("[ZR] Record: found direct button");
+            return true;
+          }
+          // Strategy 2: Open the context menu on the currently active channel
+          var activeChannel = document.querySelector(
+            '[data-soul="TEASER_CHANNEL"][aria-current="true"]'
+          );
+          if (!activeChannel) return false;
+          var menuBtn = activeChannel.querySelector('[data-soul="MENU_CONTROL_TOGGLE"]');
+          if (!menuBtn || menuBtn.offsetParent === null) return false;
+          menuBtn.click();
+          console.log("[ZR] Record: opened channel context menu");
+          // Wait for the React menu to render, then find "Record"/"Aufnahme" option
+          setTimeout(function () {
+            var items = document.querySelectorAll(
+              '[role="menuitem"],[role="option"],' +
+              '[class*="menu"] [class*="item"],[class*="context"] [class*="item"],' +
+              'li[class*="menu"],button[class*="menu"]'
+            );
+            var found = false;
+            for (var i = 0; i < items.length; i++) {
+              var text = (items[i].textContent || "").toLowerCase();
+              if (text.indexOf("record") >= 0 || text.indexOf("aufnahme") >= 0) {
+                items[i].click();
+                showOsd("⏺ Record");
+                console.log("[ZR] Record: clicked menu item");
+                found = true;
+                break;
+              }
+            }
+            if (!found) {
+              // Click Escape to close the menu if nothing matched
+              document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+              document.body.dispatchEvent(new KeyboardEvent("keyup", { key: "Escape", bubbles: true }));
+              console.log("[ZR] Record: no menu item found, closed menu");
+              showOsd("⏺ Record — not available");
+            }
+          }, 400);
+          return true;
+        }
+        if (!tryRecord()) {
+          console.log("[ZR] Record: no active channel found, navigating to recordings");
+          window.location.href = BASE_URL + "/recordings";
+        }
+        break;
+    }
+  }
+
+  // ── Tauri IPC helper ────────────────────────────────────────────
+  // Calls a Rust Tauri command via window.__TAURI__ (available because
+  // withGlobalTauri: true is set in tauri.conf.json).
+  function invokeRust(cmd, args) {
+    try {
+      if (window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke) {
+        window.__TAURI__.core.invoke(cmd, args);
+      }
+    } catch (e) {
+      console.warn("[ZR] Tauri invoke failed for", cmd, e);
     }
   }
 
@@ -438,11 +539,31 @@
         case "down":
           zattooAction("send_key", "ArrowDown");
           break;
+        case "channel_up":
+          zattooAction("send_key", "PageUp");
+          break;
+        case "channel_down":
+          zattooAction("send_key", "PageDown");
+          break;
         case "left":
           zattooAction("send_key", "ArrowLeft");
           break;
         case "right":
           zattooAction("send_key", "ArrowRight");
+          break;
+        case "volume_up":
+          currentVolume = Math.min(100, currentVolume + VOLUME_STEP);
+          showOsdVolume(currentVolume);
+          invokeRust("set_system_volume", { volumePercent: currentVolume });
+          break;
+        case "volume_down":
+          currentVolume = Math.max(0, currentVolume - VOLUME_STEP);
+          showOsdVolume(currentVolume);
+          invokeRust("set_system_volume", { volumePercent: currentVolume });
+          break;
+        case "mute":
+          invokeRust("toggle_system_mute");
+          showOsd("\uD83D\uDD07 Mute");
           break;
         case "ok":
           zattooAction("send_key", "Enter");
@@ -458,12 +579,6 @@
           break;
         case "fast_forward":
           zattooAction("seek", "15");
-          break;
-        case "channel_up":
-          zattooAction("send_key", "PageUp");
-          break;
-        case "channel_down":
-          zattooAction("send_key", "PageDown");
           break;
         case "home":
           zattooAction("navigate", "/live");
@@ -490,7 +605,7 @@
           zattooAction("press_escape");
           break;
         case "record":
-          showOsd("Record");
+          zattooAction("record_program");
           break;
         case "mouse_mode":
           showOsd("Mouse Mode");
@@ -568,15 +683,20 @@
     }, 1000);
   }
 
-  // ── Toast / popup auto-dismisser ────────────────────────────────
+  // ── Toast / popup auto-dismissal ────────────────────────────────
   // Zattoo shows toasts ("Verringerte Videoqualität", etc.) that
-  // block key input. Finds them by text content and dismisses them.
+  // block key input. Aggressively finds them by text content and
+  // removes them. Also dispatches Escape to close any modal overlay.
   function dismissToasts() {
     if (window._zrToastTimer) return;
     window._zrToastTimer = 1;
 
+    // Broader keyword set covering German and English DRM/quality toasts
     var keywords =
-      "verringerte,videoqualität,kopierschutz,copy protection,reduced quality,sd qualit";
+      "verringerte,videoqualität,kopierschutz,copy protection,reduced quality," +
+      "sd qualit,gerät nicht kompatibel,device not compatible,widevine," +
+      "fehler,error,hinweis,notice,abbrechen,cancel,schließen,close," +
+      "nicht verfügbar,not available,eingeschränkt,limited";
 
     function tryDismissToast(el) {
       if (!el || el._zrDismissed || el.nodeType !== 1) return;
@@ -585,57 +705,68 @@
         "[ZR] Auto-dismiss:",
         (el.textContent || "").slice(0, 80).trim()
       );
-      var buttons = el.querySelectorAll('button, [role="button"], svg, a');
-      for (var i = 0; i < buttons.length; i++) {
-        if (typeof buttons[i].click === "function") {
-          buttons[i].click();
-          return;
+      // Strategy 1: Click any close/button element inside
+      var btns = el.querySelectorAll('button, [role="button"], svg, a');
+      for (var i = 0; i < btns.length; i++) {
+        if (typeof btns[i].click === "function") {
+          btns[i].click();
         }
       }
+      // Strategy 2: Dispatch a click on the element itself
       try {
         var evt = new MouseEvent("click", { bubbles: true, cancelable: true });
         el.dispatchEvent(evt);
       } catch (e) {}
+      // Strategy 3: Detach from DOM entirely
       try {
         var parent = el.parentNode;
         if (parent) parent.removeChild(el);
+      } catch (e) {}
+      // Strategy 4: If it's a React portal or shadow DOM, try removing higher up
+      try {
+        if (el.parentNode && el.parentNode.parentNode) {
+          el.parentNode.parentNode.removeChild(el.parentNode);
+        }
       } catch (e) {}
     }
 
     function scanToasts() {
       var kws = keywords.split(",");
-      document
-        .querySelectorAll(
-          '[role="alert"],[role="dialog"],[class*="banner" i],[class*="snackbar" i],[class*="toast" i],[class*="notification" i],[class*="overlay" i],[class*="popup" i],[style*="fixed"],[style*="sticky"]'
-        )
-        .forEach(function (el) {
-          if (el._zrDismissed) return;
-          var text = (el.textContent || "").toLowerCase();
-          if (text.length < 10 || text.length > 400) return;
-          for (var i = 0; i < kws.length; i++) {
-            if (text.indexOf(kws[i]) >= 0) {
-              tryDismissToast(el);
-              return;
-            }
-          }
-        });
-      var extra = document.querySelectorAll(
-        '[class*="message" i],[data-soul*="MESSAGE" i],[data-soul*="NOTIFICATION" i],[data-soul*="TOAST" i]'
-      );
-      for (var i = 0; i < extra.length; i++) {
-        var text = (extra[i].textContent || "").toLowerCase();
-        if (text.length < 10 || text.length > 400) continue;
-        for (var j = 0; j < kws.length; j++) {
-          if (text.indexOf(kws[j]) >= 0) {
-            tryDismissToast(extra[i]);
-            break;
+      // Broader selector coverage for Zattoo's current toast implementation
+      var selector =
+        '[role="alert"],[role="dialog"],[class*="banner" i],[class*="snackbar" i],' +
+        '[class*="toast" i],[class*="notification" i],[class*="overlay" i],' +
+        '[class*="popup" i],[style*="fixed"],[style*="sticky"],' +
+        '[data-soul*="MESSAGE" i],[data-soul*="NOTIFICATION" i],[data-soul*="TOAST" i],' +
+        '[data-soul*="OVERLAY" i],[class*="message" i],' +
+        // Zattoo-specific toast containers
+        '.Toastify__toast,.toast-body,.alert,.alert-dismissable';
+      document.querySelectorAll(selector).forEach(function (el) {
+        if (el._zrDismissed) return;
+        var text = (el.textContent || "").toLowerCase();
+        if (text.length < 8 || text.length > 500) return;
+        for (var i = 0; i < kws.length; i++) {
+          if (text.indexOf(kws[i]) >= 0) {
+            tryDismissToast(el);
+            return;
           }
         }
-      }
+      });
     }
 
+    // Scan immediately
     scanToasts();
-    setInterval(scanToasts, 1500);
+    // Then every 1s — more aggressive than before
+    setInterval(function () {
+      scanToasts();
+      // Also send Escape to close any modal overlay that may have appeared
+      document.body.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true })
+      );
+      document.body.dispatchEvent(
+        new KeyboardEvent("keyup", { key: "Escape", code: "Escape", bubbles: true })
+      );
+    }, 1000);
   }
 
   // ── SPA navigation observer ────────────────────────────────────
@@ -664,7 +795,7 @@
   // ── DRM detection ────────────────────────────────────────────────
   // Detects available DRM key systems in the browser/webview.
   // Results are stored on window.__zattooRemote.drm and reported
-  // back to Rust via Tauri event for terminal visibility.
+  // back to Rust via event + fallback invoke for terminal visibility.
   function detectDRM() {
     function storeResult(found, total) {
       var drmInfo = {
@@ -676,7 +807,7 @@
       try {
         if (window.__zattooRemote) window.__zattooRemote.drm = drmInfo;
       } catch (e) {}
-      // Report to Rust terminal via Tauri event
+      // Strategy 1: Report via Tauri event (needs core:event:allow-emit)
       try {
         if (
           window.__TAURI__ &&
@@ -686,22 +817,10 @@
           window.__TAURI__.event.emit("drm-status", drmInfo);
         }
       } catch (e) {
-        console.warn("[ZR] DRM: Could not report to Rust:", e);
+        console.warn("[ZR] DRM: Could not report via event:", e);
       }
-    }
-
-    function showDrmWarning(found) {
-      if (found === 0) {
-        var el = document.getElementById("zrL");
-        if (el) {
-          el.textContent =
-            "\u26A0 No DRM \u2014 playback may be limited";
-          el.classList.add("s");
-          setTimeout(function () {
-            el.classList.remove("s");
-          }, 4000);
-        }
-      }
+      // Strategy 2: Fallback — invoke Rust command directly
+      invokeRust("log_drm", { message: JSON.stringify(drmInfo) });
     }
 
     if (
@@ -711,7 +830,6 @@
         "[ZR] DRM: Not available \u2014 navigator.requestMediaKeySystemAccess not found"
       );
       storeResult(0, 8);
-      showDrmWarning(0);
       return false;
     }
 
@@ -757,7 +875,6 @@
                 " key system(s) available"
             );
             storeResult(found, systems.length);
-            showDrmWarning(found);
           }
         });
     });
@@ -774,6 +891,7 @@
         injectHtml();
         startMutationObserver();
         watchNav();
+        blockZattooShortcuts();
         dismissToasts();
         window.__zattooRemote = {
           handleKeyEvent: handleKeyEvent,

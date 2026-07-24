@@ -381,11 +381,11 @@ mod linux_input {
     fn map_evdev_key(key: Key, is_press: bool) -> Option<RemoteKeyEvent> {
         let code = key.code();
         let (action, label) = match code {
-            // Navigation arrows — Up/Down = channel zapping, Left/Right = focus navigation
-            103 => ("channel_up", "CH+"),           // KEY_UP
-            108 => ("channel_down", "CH-"),         // KEY_DOWN
-            105 => ("left", "◀ Left"),              // KEY_LEFT
-            106 => ("right", "▶ Right"),            // KEY_RIGHT
+            // Navigation arrows — Up/Down = program guide, Left/Right = volume
+            103 => ("up", "▲ Up"),                  // KEY_UP
+            108 => ("down", "▼ Down"),               // KEY_DOWN
+            105 => ("volume_down", "🔊-"),           // KEY_LEFT
+            106 => ("volume_up", "🔊+"),             // KEY_RIGHT
 
             // Enter / OK
             28 | 96 => ("ok", "OK"),         // KEY_ENTER, KEY_KPENTER
@@ -546,10 +546,10 @@ pub(crate) mod rdev_input {
     /// Map a raw rdev Key to a remote key action.
     fn map_rdev_key(key: Key, is_press: bool) -> Option<RemoteKeyEvent> {
         let (action, label) = match key {
-            Key::UpArrow => ("channel_up", "CH+"),
-            Key::DownArrow => ("channel_down", "CH-"),
-            Key::LeftArrow => ("left", "◀ Left"),
-            Key::RightArrow => ("right", "▶ Right"),
+            Key::UpArrow => ("up", "▲ Up"),
+            Key::DownArrow => ("down", "▼ Down"),
+            Key::LeftArrow => ("volume_down", "🔊-"),
+            Key::RightArrow => ("volume_up", "🔊+"),
             Key::Return | Key::KpReturn => ("ok", "OK"),
             Key::Escape => ("back", "⬅ Back"),
             Key::Backspace => ("back", "⬅ Back"),

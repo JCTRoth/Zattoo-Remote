@@ -123,12 +123,12 @@ describe("key-config.json", () => {
     it("should have essential navigation mappings", () => {
       const actionSet = new Set(keyConfig.mappings.map((m) => m.action));
       const essential = [
-        "channel_up",
-        "channel_down",
+        "up",
+        "down",
         "ok",
         "back",
-        "left",
-        "right",
+        "volume_up",
+        "volume_down",
         "home",
         "play_pause",
       ];

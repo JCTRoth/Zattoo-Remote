@@ -40,6 +40,13 @@ async fn get_key_mapping_json(state: tauri::State<'_, AppState>) -> Result<Strin
     mapper.export_mapping_json().map_err(|e| e.to_string())
 }
 
+/// Simple logging command callable from the injected script as a fallback
+/// when Tauri events are not available on remote pages.
+#[tauri::command]
+fn log_drm(message: String) {
+    log::info!("[diagnostic] info: [DRM] {}", message);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Default to info-level logging so users can see diagnostic messages.
@@ -211,6 +218,7 @@ pub fn run() {
             set_input_active,
             get_input_active,
             get_key_mapping_json,
+            log_drm,
             zattoo_controller::set_system_volume,
             zattoo_controller::toggle_system_mute,
         ])

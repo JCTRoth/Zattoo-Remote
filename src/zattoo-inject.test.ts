@@ -165,7 +165,7 @@ describe("handleKeyEvent", () => {
     vi.useRealTimers();
   });
 
-  it("should handle navigation key events (ArrowUp)", () => {
+  it("should handle navigation key events (up → ArrowUp for program guide)", () => {
     const handler = getHandleKeyEvent();
     expect(handler).toBeDefined();
 
