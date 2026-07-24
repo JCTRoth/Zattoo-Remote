@@ -12,7 +12,7 @@ use key_mapper::KeyMapper;
 use parking_lot::Mutex;
 use std::sync::Arc;
 use std::time::Duration;
-use tauri::Manager;
+use tauri::{Listener, Manager};
 use tokio::sync::mpsc;
 
 /// Shared application state accessible from both Rust commands and the frontend.
@@ -60,6 +60,11 @@ pub fn run() {
     }
     env_logger::init();
 
+    log::info!(
+        "DRM: Webview EME (Encrypted Media Extensions) support depends on the system WebKit/Chromium build. \
+        The injected overlay will probe for Widevine, PlayReady, and other key systems at runtime."
+    );
+
     let key_mapper = Arc::new(Mutex::new(KeyMapper::new()));
     // Start with input active. The old frontend (main.ts) used to call set_input_active(true)
     // but since we now load Zattoo directly, we start enabled and the injected script
@@ -95,6 +100,25 @@ pub fn run() {
                     log::error!("Failed to start input listener: {}", e);
                 }
             });
+
+            // Listen for DRM status events emitted by the injected overlay script.
+            // The overlay probes for Widevine, PlayReady, etc. and reports back via
+            // window.__TAURI__.event.emit('drm-status', {available, found, total}).
+            {
+                let app_handle = app.handle().clone();
+                app_handle.listen("drm-status", |event| {
+                    if let Ok(payload) = serde_json::from_str::<serde_json::Value>(event.payload()) {
+                        let available = payload.get("available").and_then(|v| v.as_bool()).unwrap_or(false);
+                        let found = payload.get("found").and_then(|v| v.as_u64()).unwrap_or(0);
+                        let total = payload.get("total").and_then(|v| v.as_u64()).unwrap_or(0);
+                        if available {
+                            log::info!("[diagnostic] info: [DRM] {} key system(s) available (probed {}/{})", found, found, total);
+                        } else {
+                            log::warn!("[diagnostic] warn: [DRM] No DRM key systems available (probed {}/{}) — Zattoo playback may fail", found, total);
+                        }
+                    }
+                });
+            }
 
             // Get the webview window for direct eval calls
             let window = app.get_webview_window("main").expect("main window");

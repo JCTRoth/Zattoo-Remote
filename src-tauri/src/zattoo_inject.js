@@ -223,10 +223,44 @@ var o=new MutationObserver(function(){try{if(document&&!document.getElementById(
 o.observe(document.body,{childList:true,subtree:true});}catch(e){}
 if(!document.body)document.addEventListener("DOMContentLoaded",function(){try{obs();}catch(e){}});}
 
+// ── DRM detection ──────────────────────────────────────────────────
+// Detects available DRM key systems in the browser/webview and logs the results.
+// Results are stored on window.__zattooRemote.drm and reported back to Rust
+// via Tauri event for terminal visibility.
+function detectDRM(){
+function storeResult(found,total){
+var drmInfo={available:found>0,found:found,total:total,timestamp:Date.now()};
+try{if(window.__zattooRemote)window.__zattooRemote.drm=drmInfo;}catch(e){}
+// Report to Rust terminal via Tauri event (withGlobalTauri=true makes __TAURI__ available)
+try{if(window.__TAURI__&&window.__TAURI__.event&&window.__TAURI__.event.emit){
+window.__TAURI__.event.emit('drm-status',drmInfo);}
+}catch(e){console.warn('[ZR] DRM: Could not report to Rust:',e);}}
+// Show on-screen OSD warning when no DRM is available
+function showDrmWarning(found){
+if(found===0){var e=document.getElementById("zrL");if(e){e.textContent='⚠ No DRM — playback may be limited';e.classList.add('s');
+setTimeout(function(){e.classList.remove('s')},4000);}}}
+if(typeof navigator.requestMediaKeySystemAccess!=='function'){
+console.log("[ZR] DRM: Not available — navigator.requestMediaKeySystemAccess not found");
+storeResult(0,8);showDrmWarning(0);return false;}
+console.log("[ZR] DRM: EME API available, probing key systems...");
+var systems=['com.widevine.alpha','com.microsoft.playready','com.microsoft.playready.recommendation',
+'com.apple.fps','com.apple.fps.1_0','org.w3.clearkey','com.adobe.primetime','com.youtube.playready'];
+var checked=0,found=0;
+systems.forEach(function(ks){
+navigator.requestMediaKeySystemAccess(ks,[{initDataTypes:['cenc'],videoCapabilities:[{contentType:'video/mp4;codecs="avc1.42E01E"'}]}])
+.then(function(){console.log("[ZR] DRM: ✓ "+ks+" is available");found++;})
+.catch(function(){/* key system not supported, that's normal */})
+.finally(function(){checked++;if(checked===systems.length){
+console.log("[ZR] DRM: Found "+found+"/"+systems.length+" key system(s) available");
+storeResult(found,systems.length);showDrmWarning(found);}});
+});
+return true;}
+
 // ── Init ─────────────────────────────────────────────────────────
 function init(){try{console.log("[ZR] Init...");
 if(document&&document.body&&document.head){injCSS();injHTML();obs();watchNav();dismissToasts();
-window.__zattooRemote={handleKeyEvent:hke,version:"2.0"};
+window.__zattooRemote={handleKeyEvent:hke,version:"2.0",drm:null};
+detectDRM();
 console.log("[ZR] Ready");}else{setTimeout(init,500);}}catch(e){console.error("[ZR] Init error:",e);setTimeout(init,500);}}
 if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",init);else init();
 })();

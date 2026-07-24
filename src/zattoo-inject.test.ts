@@ -512,3 +512,117 @@ describe("Navigation detection", () => {
     vi.advanceTimersByTime(1500);
   });
 });
+
+// ── DRM Detection Tests ──────────────────────────────────────────
+
+describe("DRM detection", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("should log that DRM is not available when requestMediaKeySystemAccess is missing", () => {
+    const orig = (navigator as unknown as Record<string, unknown>).requestMediaKeySystemAccess;
+    (navigator as unknown as Record<string, unknown>).requestMediaKeySystemAccess = undefined as unknown as typeof navigator.requestMediaKeySystemAccess;
+
+    const logSpy = vi.spyOn(console, "log");
+    injectZattooRemote();
+
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining("DRM: Not available")
+    );
+
+    (navigator as unknown as Record<string, unknown>).requestMediaKeySystemAccess = orig;
+  });
+
+  it("should probe for key systems when EME API is available", async () => {
+    const mockRequestAccess = vi.fn().mockImplementation((keySystem: string) => {
+      if (keySystem === "com.widevine.alpha") {
+        return Promise.resolve({} as MediaKeySystemAccess);
+      }
+      return Promise.reject(new Error("Not supported"));
+    });
+
+    const orig = (navigator as unknown as Record<string, unknown>).requestMediaKeySystemAccess;
+    (navigator as unknown as Record<string, unknown>).requestMediaKeySystemAccess = mockRequestAccess as unknown as typeof navigator.requestMediaKeySystemAccess;
+
+    const logSpy = vi.spyOn(console, "log");
+    injectZattooRemote();
+
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining("DRM: EME API available")
+    );
+    expect(mockRequestAccess).toHaveBeenCalledWith(
+      "com.widevine.alpha",
+      expect.any(Array)
+    );
+
+    // Wait for all promises to settle (use real microtasks)
+    await vi.waitFor(
+      () => {
+        expect(logSpy).toHaveBeenCalledWith(
+          expect.stringContaining("DRM: Found 1/8 key system(s) available")
+        );
+      },
+      { timeout: 2000, interval: 50 }
+    );
+
+    (navigator as unknown as Record<string, unknown>).requestMediaKeySystemAccess = orig;
+  });
+
+  it("should report zero key systems when none are supported", async () => {
+    const mockRequestAccess = vi.fn().mockRejectedValue(new Error("Not supported"));
+
+    const orig = (navigator as unknown as Record<string, unknown>).requestMediaKeySystemAccess;
+    (navigator as unknown as Record<string, unknown>).requestMediaKeySystemAccess = mockRequestAccess as unknown as typeof navigator.requestMediaKeySystemAccess;
+
+    const logSpy = vi.spyOn(console, "log");
+    injectZattooRemote();
+
+    await vi.waitFor(
+      () => {
+        expect(logSpy).toHaveBeenCalledWith(
+          expect.stringContaining("DRM: Found 0/8 key system(s) available")
+        );
+      },
+      { timeout: 2000, interval: 50 }
+    );
+
+    (navigator as unknown as Record<string, unknown>).requestMediaKeySystemAccess = orig;
+  });
+
+  it("should not break the injection when DRM detection is active", () => {
+    const mockRequestAccess = vi.fn().mockResolvedValue({} as MediaKeySystemAccess);
+
+    const orig = (navigator as unknown as Record<string, unknown>).requestMediaKeySystemAccess;
+    (navigator as unknown as Record<string, unknown>).requestMediaKeySystemAccess = mockRequestAccess as unknown as typeof navigator.requestMediaKeySystemAccess;
+
+    injectZattooRemote();
+
+    const handler = getHandleKeyEvent();
+    expect(handler).toBeDefined();
+    expect(document.getElementById("zrR")).toBeTruthy();
+
+    (navigator as unknown as Record<string, unknown>).requestMediaKeySystemAccess = orig;
+  });
+
+  it("should log a summary line after probing all key systems", async () => {
+    const mockRequestAccess = vi.fn().mockResolvedValue({} as MediaKeySystemAccess);
+
+    const orig = (navigator as unknown as Record<string, unknown>).requestMediaKeySystemAccess;
+    (navigator as unknown as Record<string, unknown>).requestMediaKeySystemAccess = mockRequestAccess as unknown as typeof navigator.requestMediaKeySystemAccess;
+
+    const logSpy = vi.spyOn(console, "log");
+    injectZattooRemote();
+
+    await vi.waitFor(
+      () => {
+        expect(logSpy).toHaveBeenCalledWith(
+          expect.stringContaining("DRM: Found")
+        );
+      },
+      { timeout: 2000, interval: 50 }
+    );
+
+    (navigator as unknown as Record<string, unknown>).requestMediaKeySystemAccess = orig;
+  });
+});
