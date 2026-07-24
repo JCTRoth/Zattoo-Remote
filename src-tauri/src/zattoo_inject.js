@@ -501,6 +501,45 @@
     }
   }
 
+  // ── Auto-fullscreen ──────────────────────────────────────────────
+  // When a channel page loads, automatically click Zattoo's fullscreen
+  // button so the player fills the viewport. Retries for a few seconds
+  // since the player loads asynchronously after the page.
+  function autoFullscreen() {
+    if (window._zrFullscreenActive) return;
+    var attempts = 0;
+    var maxAttempts = 15; // 15 × 400ms = 6s of retries
+    function tryFullscreen() {
+      attempts++;
+      // Look for Zattoo's fullscreen surface button in the player OSD
+      var btn = document.querySelector(
+        '[data-soul="OSD_SURFACE_FULLSCREEN"],' +
+        '[data-testid*="fullscreen" i],' +
+        '[aria-label*="fullscreen" i],' +
+        '[title*="Fullscreen" i],' +
+        '[title*="Vollbild" i],' +
+        '.fullscreen-button,' +
+        '[data-soul="TEASER_BROADCAST_CONTROL_WATCH"],' +
+        'button[data-soul*="WATCH" i]'
+      );
+      if (btn && btn.offsetParent !== null) {
+        console.log("[ZR] Fullscreen: clicking", btn.getAttribute("data-soul") || btn.tagName);
+        try {
+          btn.click();
+          window._zrFullscreenActive = true;
+        } catch (e) {
+          console.warn("[ZR] Fullscreen: click failed", e);
+        }
+        return;
+      }
+      if (attempts < maxAttempts) {
+        setTimeout(tryFullscreen, 400);
+      }
+    }
+    // Delay initial attempt to let the player mount after page load
+    setTimeout(tryFullscreen, 1500);
+  }
+
   // ── Navigation detection ───────────────────────────────────────
   function watchNav() {
     lastUrl = window.location.href;
@@ -508,6 +547,8 @@
       if (window.location.href !== lastUrl) {
         lastUrl = window.location.href;
         console.log("[ZR] URL changed to:", lastUrl);
+        // Reset fullscreen flag on navigation so it re-triggers
+        window._zrFullscreenActive = false;
         if (!document.getElementById("zrR")) {
           injectHtml();
           injectStyles();
@@ -521,6 +562,8 @@
             version: "2.0",
           };
         }
+        // After URL change, try auto-fullscreen again
+        autoFullscreen();
       }
     }, 1000);
   }
@@ -738,6 +781,7 @@
           drm: null,
         };
         detectDRM();
+        autoFullscreen();
         console.log("[ZR] Ready");
       } else {
         setTimeout(init, 500);
