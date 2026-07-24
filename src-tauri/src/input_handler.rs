@@ -53,7 +53,7 @@ pub fn send_diagnostic(sender: &UnboundedSender<String>, level: &str, message: &
     }
 }
 
-/// Wraps the global input listener with graceful shutdown support.
+/// Wraps the global input listener.
 pub struct InputListener {
     running: Arc<AtomicBool>,
 }
@@ -86,10 +86,16 @@ impl InputListener {
 
         Ok(())
     }
+}
 
-    /// Signal the listener to stop (used for clean shutdown).
-    pub fn stop(&self) {
-        self.running.store(false, Ordering::SeqCst);
+/// Helper: build a `RemoteKeyEvent` from an (action, label) pair.
+fn key_event(action: &str, label: &str, scan_code: u32, is_press: bool) -> RemoteKeyEvent {
+    RemoteKeyEvent {
+        event_type: "key_event".into(),
+        action: action.into(),
+        label: label.into(),
+        scan_code,
+        is_press,
     }
 }
 
@@ -465,13 +471,7 @@ mod linux_input {
             }
         };
 
-        Some(RemoteKeyEvent {
-            event_type: "key_event".into(),
-            action: action.to_string(),
-            label: label.to_string(),
-            scan_code: code as u32,
-            is_press,
-        })
+        Some(key_event(action, label, code as u32, is_press))
     }
 }
 
@@ -510,19 +510,13 @@ pub(crate) mod rdev_input {
                         }
                     }
                     EventType::ButtonPress(button) => {
-                        let action = match button {
-                            rdev::Button::Left => "mouse_left",
-                            rdev::Button::Right => "mouse_right",
-                            rdev::Button::Middle => "mouse_middle",
+                        let (action, label) = match button {
+                            rdev::Button::Left => ("mouse_left", "Mouse Left"),
+                            rdev::Button::Right => ("mouse_right", "Mouse Right"),
+                            rdev::Button::Middle => ("mouse_middle", "Mouse Middle"),
                             _ => return,
                         };
-                        let event = RemoteKeyEvent {
-                            event_type: "key_event".into(),
-                            action: action.to_string(),
-                            label: format!("Mouse {}", action),
-                            scan_code: 0,
-                            is_press: true,
-                        };
+                        let event = key_event(action, label, 0, true);
                         if let Ok(json) = serde_json::to_string(&event) {
                             let _ = sender.send(json);
                         }
@@ -598,13 +592,7 @@ pub(crate) mod rdev_input {
             _ => return None,
         };
 
-        Some(RemoteKeyEvent {
-            event_type: "key_event".into(),
-            action: action.to_string(),
-            label: label.to_string(),
-            scan_code: 0,
-            is_press,
-        })
+        Some(key_event(action, label, 0, is_press))
     }
 }
 

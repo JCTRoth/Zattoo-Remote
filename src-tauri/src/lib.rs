@@ -35,17 +35,6 @@ async fn get_input_active(state: tauri::State<'_, AppState>) -> Result<bool, Str
 }
 
 #[tauri::command]
-async fn update_key_mapping(
-    state: tauri::State<'_, AppState>,
-    mapping_json: String,
-) -> Result<(), String> {
-    let mut mapper = state.key_mapper.lock();
-    mapper
-        .load_custom_mapping(&mapping_json)
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
 async fn get_key_mapping_json(state: tauri::State<'_, AppState>) -> Result<String, String> {
     let mapper = state.key_mapper.lock();
     mapper.export_mapping_json().map_err(|e| e.to_string())
@@ -221,10 +210,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             set_input_active,
             get_input_active,
-            update_key_mapping,
             get_key_mapping_json,
-            zattoo_controller::execute_zattoo_action,
-            zattoo_controller::navigate_zattoo,
             zattoo_controller::set_system_volume,
             zattoo_controller::toggle_system_mute,
         ])
